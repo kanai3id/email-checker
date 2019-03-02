@@ -1,0 +1,51 @@
+#!/bin/sh
+
+mailfile=$1
+
+if [ $# -ne 1 -o ! -f $mailfile ]; then
+    echo 'usage: email-checker.sh [EMail-file-list]'
+    exit 1
+fi
+
+which swaks > /dev/null 2>&1
+if [ $? == 1 ]; then
+    echo 'Can not find the swaks command.'
+    exit 1
+fi
+
+while read email; do
+
+    user=$(cut -d'@' -f 1 <<<${email})
+    domain=$(cut -d'@' -f 2 <<<${email})
+
+    # Simple check
+    if [[ ! $email =~ @ ]]; then
+        echo "\"$email\",\"false\",\"not mail address.\""
+        continue
+    fi
+
+    # Check Domain
+    nslookup $domain > /dev/null 2>&1
+    if [ $? == 1 ]; then
+        echo "\"$email\",\"false\",\"domain does not exist.\""
+        continue
+    fi
+
+    # Check MX Record
+    mxrec=`dig $domain MX +short | head -1`
+    if [ ${#mxrec} == 0 ]; then
+        echo "\"$email\",\"false\",\"mx record does not exist.\""
+        continue
+    fi
+
+    # Request mail server
+    mxhost=`echo ${mxrec} | sed -e 's/.$//g' | awk '{print $2}'`
+    swaks --from "<>" --to $email --quit-after RCPT --hide-all --server $mxhost --timeout 5 > /dev/null 2>&1
+    STATUS=$?
+    if [ $STATUS == 0 ]; then
+        echo "\"$email\",\"true\",\"ok\""
+    else
+        echo "\"$email\",\"false\",\"$STATUS\""
+    fi
+
+done < $mailfile
